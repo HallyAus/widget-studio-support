@@ -1,0 +1,58 @@
+name: Private support source and installed OAuth compatibility
+'on':
+  push:
+    branches:
+    - main
+  workflow_dispatch: null
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: personal-ubuntu
+    container:
+      image: node:24-bookworm@sha256:14078204b6bb268c107ceff6d3c43f45a888105e5c2b18b14c32b3409d93a1b0
+    timeout-minutes: 15
+    steps:
+    - name: Check out the exact private VM300 source
+      env:
+        SOURCE_TOKEN: ${{ secrets.GITEA_TOKEN }}
+      shell: sh
+      run: |
+        set -eu
+        test "$GITHUB_SERVER_URL" = 'http://192.168.1.130:3000'
+        test "$GITHUB_REPOSITORY" = 'hallyaus/widget-studio-support'
+        test "$GITHUB_REF" = 'refs/heads/main'
+        test -n "${SOURCE_TOKEN:?Repository job token required}"
+        case "$GITHUB_SHA" in ''|*[!0-9a-f]*) exit 1;; esac
+        test "${#GITHUB_SHA}" -eq 40
+        command -v git >/dev/null || apk add --no-cache git
+        helper="$(mktemp "${RUNNER_TEMP:-/tmp}/support-askpass.XXXXXX")"
+        trap 'rm -f "$helper"' EXIT
+        cat > "$helper" <<'ASKPASS'
+        #!/bin/sh
+        case "$1" in
+          *Username*) printf '%s\n' 'x-access-token' ;;
+          *Password*) printf '%s\n' "$SOURCE_TOKEN" ;;
+          *) exit 1 ;;
+        esac
+        ASKPASS
+        chmod 700 "$helper"
+        export GIT_ASKPASS="$helper" GIT_TERMINAL_PROMPT=0
+        git init .
+        git remote add origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git"
+        git -c credential.helper= fetch --no-tags --depth=1 origin "$GITHUB_SHA"
+        git checkout --detach FETCH_HEAD
+        test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+        git -c credential.helper= fetch --no-tags --depth=1 origin 3270699ec871359b39ac1c6e79bb488388d7af16
+    - name: Verify static content and preserve installed OAuth declarations
+      shell: sh
+      run: |
+        set -eu
+        python3 .gitea/scripts/verify_static.py
+    - name: Retain the candidate on private Gitea
+      uses: https://github.com/actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5
+      with:
+        name: widget-support-candidate-${{ github.sha }}
+        path: dist/
+        if-no-files-found: error
+        retention-days: 14
