@@ -1,0 +1,26 @@
+name: Verify support site
+
+# Manual validation only; publication remains the protected Pages route.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: support-static-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: [self-hosted, linux, x64]
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Test the static contract
+        run: python3 -m unittest discover -s scripts/tests -v
+      - name: Verify publishable files
+        run: python3 scripts/verify_static.py
+
